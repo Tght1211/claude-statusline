@@ -52,8 +52,9 @@ usage_color() {
     fi
 }
 
-# Render a unicode progress bar of given width
-# Usage: make_bar <pct> <width>
+# Render a unicode progress bar with per-cell threshold coloring.
+# Filled cells are tinted green (≤50%), yellow (≤70%), orange (≤90%), red (>90%);
+# empty cells are dim. Usage: make_bar <pct> <width>
 make_bar() {
     local pct=$1
     local width=${2:-10}
@@ -61,11 +62,24 @@ make_bar() {
     [ "$pct" -gt 100 ] 2>/dev/null && pct=100
     [ "$pct" -lt 0 ] 2>/dev/null && pct=0
     local filled=$(( pct * width / 100 ))
-    local empty=$(( width - filled ))
     local bar=""
-    local i
-    for ((i=0; i<filled; i++)); do bar+="█"; done
-    for ((i=0; i<empty; i++)); do bar+="░"; done
+    local i cell_pct
+    for ((i=0; i<width; i++)); do
+        if [ "$i" -lt "$filled" ]; then
+            cell_pct=$(( (i + 1) * 100 / width ))
+            if [ "$cell_pct" -gt 90 ]; then
+                bar+="${red}█${reset}"
+            elif [ "$cell_pct" -gt 70 ]; then
+                bar+="${orange}█${reset}"
+            elif [ "$cell_pct" -gt 50 ]; then
+                bar+="${yellow}█${reset}"
+            else
+                bar+="${green}█${reset}"
+            fi
+        else
+            bar+="${dim}░${reset}"
+        fi
+    done
     printf "%s" "$bar"
 }
 
@@ -404,7 +418,7 @@ if $effective_builtin; then
         five_hour_pct=$(printf "%.0f" "$builtin_five_hour_pct")
         five_hour_color=$(usage_color "$five_hour_pct")
         five_hour_bar=$(make_bar "$five_hour_pct" 10)
-        out+="${white}5h${reset} ${five_hour_color}${five_hour_bar}${reset} ${five_hour_color}${five_hour_pct}%${reset}"
+        out+="${white}5h${reset} ${five_hour_bar} ${five_hour_color}${five_hour_pct}%${reset}"
         if [ -n "$builtin_five_hour_reset" ] && [ "$builtin_five_hour_reset" != "null" ]; then
             five_hour_cd=$(format_countdown "$builtin_five_hour_reset")
             [ -n "$five_hour_cd" ] && out+=" ${dim}↻${five_hour_cd}${reset}"
@@ -417,7 +431,7 @@ if $effective_builtin; then
         seven_day_pct=$(printf "%.0f" "$builtin_seven_day_pct")
         seven_day_color=$(usage_color "$seven_day_pct")
         seven_day_bar=$(make_bar "$seven_day_pct" 10)
-        out+="${sep}${white}7d${reset} ${seven_day_color}${seven_day_bar}${reset} ${seven_day_color}${seven_day_pct}%${reset}"
+        out+="${sep}${white}7d${reset} ${seven_day_bar} ${seven_day_color}${seven_day_pct}%${reset}"
         if [ -n "$builtin_seven_day_reset" ] && [ "$builtin_seven_day_reset" != "null" ]; then
             seven_day_cd=$(format_countdown "$builtin_seven_day_reset")
             [ -n "$seven_day_cd" ] && out+=" ${dim}↻${seven_day_cd}${reset}"
@@ -450,7 +464,7 @@ elif [ -n "$usage_data" ] && echo "$usage_data" | jq -e '.five_hour' >/dev/null 
     five_hour_cd=$(format_countdown "$five_hour_reset_epoch")
     five_hour_color=$(usage_color "$five_hour_pct")
     five_hour_bar=$(make_bar "$five_hour_pct" 10)
-    out+="${white}5h${reset} ${five_hour_color}${five_hour_bar}${reset} ${five_hour_color}${five_hour_pct}%${reset}"
+    out+="${white}5h${reset} ${five_hour_bar} ${five_hour_color}${five_hour_pct}%${reset}"
     [ -n "$five_hour_cd" ] && out+=" ${dim}↻${five_hour_cd}${reset}"
 
     seven_day_pct=$(echo "$usage_data" | jq -r '.seven_day.utilization // 0' | awk '{printf "%.0f", $1}')
@@ -459,7 +473,7 @@ elif [ -n "$usage_data" ] && echo "$usage_data" | jq -e '.five_hour' >/dev/null 
     seven_day_cd=$(format_countdown "$seven_day_reset_epoch")
     seven_day_color=$(usage_color "$seven_day_pct")
     seven_day_bar=$(make_bar "$seven_day_pct" 10)
-    out+="${sep}${white}7d${reset} ${seven_day_color}${seven_day_bar}${reset} ${seven_day_color}${seven_day_pct}%${reset}"
+    out+="${sep}${white}7d${reset} ${seven_day_bar} ${seven_day_color}${seven_day_pct}%${reset}"
     [ -n "$seven_day_cd" ] && out+=" ${dim}↻${seven_day_cd}${reset}"
 else
     out+="${white}5h${reset} ${dim}-${reset}"
