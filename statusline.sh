@@ -525,8 +525,7 @@ fi
 
 daily_cost_fmt=$(format_cost "$daily_cost")
 daily_tokens_fmt=$(format_tokens "$daily_tokens")
-out+="${sep}${dim}今日${reset} ${green}\$${daily_cost_fmt}${reset}"
-out+="${sep}${dim}用量${reset} ${orange}${daily_tokens_fmt}${reset}"
+out+="${sep}${dim}今日${reset} ${green}\$${daily_cost_fmt}${reset} ${dim}/${reset} ${orange}${daily_tokens_fmt}${reset} ${dim}词元${reset}"
 
 # ===== Update check (cached, 24h TTL) =====
 version_cache_file="/tmp/claude/statusline-version-cache.json"
