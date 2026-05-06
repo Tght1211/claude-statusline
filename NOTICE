@@ -1,0 +1,10 @@
+This project is a personal customization of:
+
+  daniel3303/ClaudeCodeStatusLine
+  https://github.com/daniel3303/ClaudeCodeStatusLine
+
+statusline.sh is a modified version of the original script
+(removed cwd display, added progress bars for 5h/7d, restructured
+into two lines, added today's cost & token aggregation).
+
+All credit for the original implementation goes to daniel3303.
