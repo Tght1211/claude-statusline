@@ -161,8 +161,8 @@ session_dur_fmt=$(format_duration "$session_dur_ms")
 out=""
 out+="${blue}${model_name}${reset}"
 out+=" ${dim}|${reset} ${orange}${used_tokens}/${total_tokens}${reset} ${dim}(${reset}${green}${pct_used}%${reset}${dim})${reset}"
-out+=" ${dim}|${reset} ${green}\$${session_cost_fmt}${reset}"
-out+=" ${dim}|${reset} ${cyan}${session_dur_fmt}${reset}"
+out+=" ${dim}|${reset} ${dim}本次${reset} ${green}\$${session_cost_fmt}${reset}"
+out+=" ${dim}|${reset} ${dim}用时${reset} ${cyan}${session_dur_fmt}${reset}"
 
 # ===== Cross-platform OAuth token resolution (from statusline.sh) =====
 # Tries credential sources in order: env var → macOS Keychain → Linux creds file → GNOME Keyring
@@ -525,8 +525,8 @@ fi
 
 daily_cost_fmt=$(format_cost "$daily_cost")
 daily_tokens_fmt=$(format_tokens "$daily_tokens")
-out+="${sep}${green}\$${daily_cost_fmt}${reset}"
-out+="${sep}${orange}${daily_tokens_fmt}${reset}"
+out+="${sep}${dim}今日${reset} ${green}\$${daily_cost_fmt}${reset}"
+out+="${sep}${dim}用量${reset} ${orange}${daily_tokens_fmt}${reset}"
 
 # ===== Update check (cached, 24h TTL) =====
 version_cache_file="/tmp/claude/statusline-version-cache.json"
