@@ -88,6 +88,23 @@ format_cost() {
     awk -v c="$1" 'BEGIN { printf "%.2f", c+0 }'
 }
 
+# Compact countdown from now to epoch (e.g. 45m, 2h30m, 5d6h)
+format_countdown() {
+    local target=$1
+    { [ -z "$target" ] || [ "$target" = "null" ] || [ "$target" = "0" ]; } && return
+    local now=$(date +%s)
+    local diff=$(( target - now ))
+    if [ "$diff" -le 0 ]; then
+        printf "0m"
+    elif [ "$diff" -lt 3600 ]; then
+        printf "%dm" $(( diff / 60 ))
+    elif [ "$diff" -lt 86400 ]; then
+        printf "%dh%dm" $(( diff / 3600 )) $(( (diff % 3600) / 60 ))
+    else
+        printf "%dd%dh" $(( diff / 86400 )) $(( (diff % 86400) / 3600 ))
+    fi
+}
+
 # Resolve config directory: CLAUDE_CONFIG_DIR (set by alias) or default ~/.claude
 claude_config_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 
@@ -389,8 +406,8 @@ if $effective_builtin; then
         five_hour_bar=$(make_bar "$five_hour_pct" 10)
         out+="${white}5h${reset} ${five_hour_color}${five_hour_bar}${reset} ${five_hour_color}${five_hour_pct}%${reset}"
         if [ -n "$builtin_five_hour_reset" ] && [ "$builtin_five_hour_reset" != "null" ]; then
-            five_hour_reset=$(date -j -r "$builtin_five_hour_reset" +"%H:%M" 2>/dev/null || date -d "@$builtin_five_hour_reset" +"%H:%M" 2>/dev/null)
-            [ -n "$five_hour_reset" ] && out+=" ${dim}@${five_hour_reset}${reset}"
+            five_hour_cd=$(format_countdown "$builtin_five_hour_reset")
+            [ -n "$five_hour_cd" ] && out+=" ${dim}↻${five_hour_cd}${reset}"
         fi
     else
         out+="${white}5h${reset} ${dim}-${reset}"
@@ -402,8 +419,8 @@ if $effective_builtin; then
         seven_day_bar=$(make_bar "$seven_day_pct" 10)
         out+="${sep}${white}7d${reset} ${seven_day_color}${seven_day_bar}${reset} ${seven_day_color}${seven_day_pct}%${reset}"
         if [ -n "$builtin_seven_day_reset" ] && [ "$builtin_seven_day_reset" != "null" ]; then
-            seven_day_reset=$(date -j -r "$builtin_seven_day_reset" +"%-m/%-d %H:%M" 2>/dev/null || date -d "@$builtin_seven_day_reset" +"%-m/%-d %H:%M" 2>/dev/null)
-            [ -n "$seven_day_reset" ] && out+=" ${dim}@${seven_day_reset}${reset}"
+            seven_day_cd=$(format_countdown "$builtin_seven_day_reset")
+            [ -n "$seven_day_cd" ] && out+=" ${dim}↻${seven_day_cd}${reset}"
         fi
     else
         out+="${sep}${white}7d${reset} ${dim}-${reset}"
@@ -429,19 +446,21 @@ elif [ -n "$usage_data" ] && echo "$usage_data" | jq -e '.five_hour' >/dev/null 
     # ---- Fall back: API-fetched usage data ----
     five_hour_pct=$(echo "$usage_data" | jq -r '.five_hour.utilization // 0' | awk '{printf "%.0f", $1}')
     five_hour_reset_iso=$(echo "$usage_data" | jq -r '.five_hour.resets_at // empty')
-    five_hour_reset=$(format_reset_time "$five_hour_reset_iso" "time")
+    five_hour_reset_epoch=$(iso_to_epoch "$five_hour_reset_iso" 2>/dev/null)
+    five_hour_cd=$(format_countdown "$five_hour_reset_epoch")
     five_hour_color=$(usage_color "$five_hour_pct")
     five_hour_bar=$(make_bar "$five_hour_pct" 10)
     out+="${white}5h${reset} ${five_hour_color}${five_hour_bar}${reset} ${five_hour_color}${five_hour_pct}%${reset}"
-    [ -n "$five_hour_reset" ] && out+=" ${dim}@${five_hour_reset}${reset}"
+    [ -n "$five_hour_cd" ] && out+=" ${dim}↻${five_hour_cd}${reset}"
 
     seven_day_pct=$(echo "$usage_data" | jq -r '.seven_day.utilization // 0' | awk '{printf "%.0f", $1}')
     seven_day_reset_iso=$(echo "$usage_data" | jq -r '.seven_day.resets_at // empty')
-    seven_day_reset=$(format_reset_time "$seven_day_reset_iso" "datetime")
+    seven_day_reset_epoch=$(iso_to_epoch "$seven_day_reset_iso" 2>/dev/null)
+    seven_day_cd=$(format_countdown "$seven_day_reset_epoch")
     seven_day_color=$(usage_color "$seven_day_pct")
     seven_day_bar=$(make_bar "$seven_day_pct" 10)
     out+="${sep}${white}7d${reset} ${seven_day_color}${seven_day_bar}${reset} ${seven_day_color}${seven_day_pct}%${reset}"
-    [ -n "$seven_day_reset" ] && out+=" ${dim}@${seven_day_reset}${reset}"
+    [ -n "$seven_day_cd" ] && out+=" ${dim}↻${seven_day_cd}${reset}"
 else
     out+="${white}5h${reset} ${dim}-${reset}"
     out+="${sep}${white}7d${reset} ${dim}-${reset}"
