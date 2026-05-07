@@ -513,6 +513,7 @@ if $daily_needs_refresh && [ -d "$projects_dir" ]; then
         (.timestamp | sub("\\.[0-9]+Z$"; "Z") | sub("\\.[0-9]+(?=[+-])"; "") | fromdateiso8601? // 0) as $ts |
         select($ts >= $start) |
         [
+            (.message.id // ""),
             (.message.model // ""),
             (.message.usage.input_tokens // 0),
             (.message.usage.output_tokens // 0),
@@ -521,12 +522,21 @@ if $daily_needs_refresh && [ -d "$projects_dir" ]; then
         ] | @tsv
     ' 2>/dev/null | awk -F'\t' '
         {
-            model=$1; in_t=$2; out_t=$3; cc_t=$4; cr_t=$5
+            mid=$1; model=$2; in_t=$3; out_t=$4; cc_t=$5; cr_t=$6
+            # 跨源去重：同一 message.id 仅计一次（参考 cc-switch session_usage 去重）
+            if (mid != "" && seen[mid]++) next
+            # 价格表对齐 cc-switch schema.rs::seed_model_pricing
+            # 顺序很重要：先匹配带版本号的新模型，再回退到旧版
+            if (model ~ /haiku-4/)            { pi=1;    po=5;   pcc=1.25;  pcr=0.10 }
+            else if (model ~ /haiku/)         { pi=0.80; po=4;   pcc=1;     pcr=0.08 }
+            else if (model ~ /sonnet/)        { pi=3;    po=15;  pcc=3.75;  pcr=0.30 }
+            else if (model ~ /opus-4-(5|6|7)/){ pi=5;    po=25;  pcc=6.25;  pcr=0.50 }
+            else if (model ~ /opus/)          { pi=15;   po=75;  pcc=18.75; pcr=1.50 }
+            else                              { pi=3;    po=15;  pcc=3.75;  pcr=0.30 }
+            # 防御：某些代理把 cache_read 计入 input_tokens（参考 cc-switch calculator.rs）
+            billable_in = in_t - cr_t; if (billable_in < 0) billable_in = 0
             tokens += in_t + out_t + cc_t + cr_t
-            if (model ~ /haiku/)       { pi=0.80; po=4;   pcc=1;     pcr=0.08 }
-            else if (model ~ /sonnet/) { pi=3;    po=15;  pcc=3.75;  pcr=0.30 }
-            else                       { pi=15;   po=75;  pcc=18.75; pcr=1.50 }
-            cost += (in_t*pi + out_t*po + cc_t*pcc + cr_t*pcr) / 1000000
+            cost += (billable_in*pi + out_t*po + cc_t*pcc + cr_t*pcr) / 1000000
         }
         END { printf "%.4f\t%d", cost+0, tokens+0 }
     ')
