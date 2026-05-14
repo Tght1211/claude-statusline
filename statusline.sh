@@ -3,7 +3,7 @@
 # Single line: Model | tokens | %used | %remain | think | 5h bar @reset | 7d bar @reset | extra
 
 set -f  # disable globbing
-VERSION="1.4.2"
+VERSION="1.4.3"
 
 input=$(cat)
 
@@ -551,9 +551,48 @@ daily_cost_fmt=$(format_cost "$daily_cost")
 daily_tokens_fmt=$(format_tokens "$daily_tokens")
 out+="${sep}${dim}今日${reset} ${green}\$${daily_cost_fmt}${reset} ${dim}/${reset} ${orange}${daily_tokens_fmt}${reset} ${dim}词元${reset}"
 
-# Upstream update check disabled — this fork tracks its own release cadence,
-# and acting on the upstream "Update available" hint would overwrite this fork.
+# ===== Update check against this fork's releases (cached, 24h TTL) =====
+# Checks Tght1211/claude-statusline, not upstream daniel3303 — acting on the
+# upstream hint would overwrite this fork.
+version_cache_file="/tmp/claude/statusline-version-cache.json"
+version_cache_max_age=86400  # 24 hours
+
+version_needs_refresh=true
+version_data=""
+
+if [ -f "$version_cache_file" ]; then
+    vc_mtime=$(stat -c %Y "$version_cache_file" 2>/dev/null || stat -f %m "$version_cache_file" 2>/dev/null)
+    vc_now=$(date +%s)
+    vc_age=$(( vc_now - vc_mtime ))
+    if [ "$vc_age" -lt "$version_cache_max_age" ]; then
+        version_needs_refresh=false
+    fi
+    version_data=$(cat "$version_cache_file" 2>/dev/null)
+fi
+
+if $version_needs_refresh; then
+    touch "$version_cache_file" 2>/dev/null
+    vc_response=$(curl -s --max-time 5 \
+        -H "Accept: application/vnd.github+json" \
+        "https://api.github.com/repos/Tght1211/claude-statusline/releases/latest" 2>/dev/null)
+    if [ -n "$vc_response" ] && echo "$vc_response" | jq -e '.tag_name' >/dev/null 2>&1; then
+        version_data="$vc_response"
+        echo "$vc_response" > "$version_cache_file"
+    elif [ ! -s "$version_cache_file" ]; then
+        # Fetch failed and the cache has no usable content — drop the empty
+        # stampede lock so the next render retries instead of the fresh mtime
+        # suppressing update checks for the full 24h TTL.
+        rm -f "$version_cache_file" 2>/dev/null
+    fi
+fi
+
 update_line=""
+if [ -n "$version_data" ]; then
+    latest_tag=$(echo "$version_data" | jq -r '.tag_name // empty')
+    if [ -n "$latest_tag" ] && version_gt "$latest_tag" "$VERSION"; then
+        update_line="\n${dim}Update available: ${latest_tag} → curl -fsSL https://raw.githubusercontent.com/Tght1211/claude-statusline/main/statusline.sh -o ~/.claude/statusline/statusline.sh${reset}"
+    fi
+fi
 
 # Output
 printf "%b" "$out$update_line"
