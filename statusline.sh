@@ -551,46 +551,9 @@ daily_cost_fmt=$(format_cost "$daily_cost")
 daily_tokens_fmt=$(format_tokens "$daily_tokens")
 out+="${sep}${dim}今日${reset} ${green}\$${daily_cost_fmt}${reset} ${dim}/${reset} ${orange}${daily_tokens_fmt}${reset} ${dim}词元${reset}"
 
-# ===== Update check (cached, 24h TTL) =====
-version_cache_file="/tmp/claude/statusline-version-cache.json"
-version_cache_max_age=86400  # 24 hours
-
-version_needs_refresh=true
-version_data=""
-
-if [ -f "$version_cache_file" ]; then
-    vc_mtime=$(stat -c %Y "$version_cache_file" 2>/dev/null || stat -f %m "$version_cache_file" 2>/dev/null)
-    vc_now=$(date +%s)
-    vc_age=$(( vc_now - vc_mtime ))
-    if [ "$vc_age" -lt "$version_cache_max_age" ]; then
-        version_needs_refresh=false
-    fi
-    version_data=$(cat "$version_cache_file" 2>/dev/null)
-fi
-
-if $version_needs_refresh; then
-    touch "$version_cache_file" 2>/dev/null
-    vc_response=$(curl -s --max-time 5 \
-        -H "Accept: application/vnd.github+json" \
-        "https://api.github.com/repos/daniel3303/ClaudeCodeStatusLine/releases/latest" 2>/dev/null)
-    if [ -n "$vc_response" ] && echo "$vc_response" | jq -e '.tag_name' >/dev/null 2>&1; then
-        version_data="$vc_response"
-        echo "$vc_response" > "$version_cache_file"
-    elif [ ! -s "$version_cache_file" ]; then
-        # Fetch failed and the cache has no usable content — drop the empty
-        # stampede lock so the next render retries instead of the fresh mtime
-        # suppressing update checks for the full 24h TTL.
-        rm -f "$version_cache_file" 2>/dev/null
-    fi
-fi
-
+# Upstream update check disabled — this fork tracks its own release cadence,
+# and acting on the upstream "Update available" hint would overwrite this fork.
 update_line=""
-if [ -n "$version_data" ]; then
-    latest_tag=$(echo "$version_data" | jq -r '.tag_name // empty')
-    if [ -n "$latest_tag" ] && version_gt "$latest_tag" "$VERSION"; then
-        update_line="\n${dim}Update available: ${latest_tag} → Tell Claude: \"Find my installed status bar and update it\"${reset}"
-    fi
-fi
 
 # Output
 printf "%b" "$out$update_line"
