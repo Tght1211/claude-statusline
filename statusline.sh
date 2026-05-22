@@ -3,7 +3,7 @@
 # Single line: Model | tokens | %used | %remain | think | 5h bar @reset | 7d bar @reset | extra
 
 set -f  # disable globbing
-VERSION="1.4.3"
+VERSION="1.5.0"
 
 input=$(cat)
 
@@ -81,6 +81,30 @@ make_bar() {
         fi
     done
     printf "%s" "$bar"
+}
+
+# Render one provider usage segment as "label bar pct% used/limit".
+# When <limit> is empty/zero, renders just "label used" (no bar).
+# Usage: render_segment <label> <used> <limit> <unit> <unitPos> <decimals>
+render_segment() {
+    local label="$1" used="$2" limit="$3" unit="$4" upos="$5" dec="$6"
+    [ -z "$dec" ] && dec=0
+    [ "$upos" = "suffix" ] || upos="prefix"
+    local used_d
+    used_d=$(LC_NUMERIC=C awk -v v="$used" -v d="$dec" 'BEGIN{printf "%.*f", d, v+0}')
+    local fmt_used
+    if [ "$upos" = "suffix" ]; then fmt_used="${used_d}${unit}"; else fmt_used="${unit}${used_d}"; fi
+    if [ -n "$limit" ] && [ "$limit" != "null" ] && LC_NUMERIC=C awk -v l="$limit" 'BEGIN{exit !((l+0)>0)}'; then
+        local limit_d pct color bar fmt_limit
+        limit_d=$(LC_NUMERIC=C awk -v v="$limit" -v d="$dec" 'BEGIN{printf "%.*f", d, v+0}')
+        pct=$(LC_NUMERIC=C awk -v u="$used" -v l="$limit" 'BEGIN{p=(u/l)*100; if(p>100)p=100; if(p<0)p=0; printf "%d", p}')
+        color=$(usage_color "$pct")
+        bar=$(make_bar "$pct" 10)
+        if [ "$upos" = "suffix" ]; then fmt_limit="${limit_d}${unit}"; else fmt_limit="${unit}${limit_d}"; fi
+        printf '%s' "${white}${label}${reset} ${bar} ${color}${pct}%${reset} ${dim}${fmt_used}/${fmt_limit}${reset}"
+    else
+        printf '%s' "${white}${label}${reset} ${dim}${fmt_used}${reset}"
+    fi
 }
 
 # Format milliseconds to compact duration (e.g. 45s, 3m, 1h20m)
@@ -234,6 +258,37 @@ get_oauth_token() {
     echo ""
 }
 
+# ===== Third-party Anthropic provider detection =====
+# When ANTHROPIC_BASE_URL points away from Anthropic, the official 5h/7d OAuth
+# usage endpoint no longer applies. In that case we skip it and instead try a
+# provider plugin under $providers_dir (see PROVIDERS.md). Setting
+# STATUSLINE_PROVIDER forces a specific plugin regardless of the base URL.
+providers_dir="$claude_config_dir/statusline/providers"
+provider_base="${ANTHROPIC_BASE_URL:-}"
+if [ -z "$provider_base" ] && [ -f "$claude_config_dir/settings.json" ]; then
+    provider_base=$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$claude_config_dir/settings.json" 2>/dev/null)
+fi
+third_party=false
+if [ -n "$provider_base" ]; then
+    case "$provider_base" in
+        *anthropic.com*) third_party=false ;;
+        *) third_party=true ;;
+    esac
+fi
+[ -n "$STATUSLINE_PROVIDER" ] && third_party=true
+
+# macOS ships no `timeout`; fall back to gtimeout, or run without one (provider
+# fetch scripts bound their own network calls with curl --max-time anyway).
+statusline_timeout=""
+if command -v timeout >/dev/null 2>&1; then statusline_timeout="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then statusline_timeout="gtimeout"
+fi
+run_with_timeout() {
+    local secs="$1"; shift
+    if [ -n "$statusline_timeout" ]; then "$statusline_timeout" "$secs" "$@"
+    else "$@"; fi
+}
+
 # ===== LINE 2 & 3: Usage limits with progress bars =====
 # First, try to use rate_limits data provided directly by Claude Code in the JSON input.
 # This is the most reliable source — no OAuth token or API call required.
@@ -291,7 +346,7 @@ fi
 # Refresh API cache when stale — runs regardless of builtin rate_limits because
 # extra_usage is only exposed through the OAuth usage endpoint (not stdin JSON).
 # Throttled to cache_max_age and stampede-locked via touch for shared panes.
-if $needs_refresh; then
+if ! $third_party && $needs_refresh; then
     touch "$cache_file"  # stampede lock: prevent parallel panes from fetching simultaneously
     token=$(get_oauth_token)
     if [ -n "$token" ] && [ "$token" != "null" ]; then
@@ -409,10 +464,95 @@ render_extra_usage() {
     fi
 }
 
+# Resolve and run the matching third-party provider plugin, appending its usage
+# segments to $out. Provider output is cached (TTL from the plugin manifest),
+# stampede-locked like the OAuth usage cache. Returns 0 when something was
+# appended, 1 when no provider matched or the plugin yielded nothing.
+render_third_party_usage() {
+    local id="" manifest pid pat matched
+    if [ -n "$STATUSLINE_PROVIDER" ]; then
+        id="$STATUSLINE_PROVIDER"
+    elif [ -d "$providers_dir" ]; then
+        # set -f is on, so glob the providers dir via find rather than */
+        while IFS= read -r manifest; do
+            [ -f "$manifest" ] || continue
+            pid=$(jq -r '.id // empty' "$manifest" 2>/dev/null)
+            [ -n "$pid" ] || continue
+            matched=false
+            while IFS= read -r pat; do
+                [ -n "$pat" ] || continue
+                case "$provider_base" in
+                    *"$pat"*) matched=true; break ;;
+                esac
+            done < <(jq -r '.match[]? // empty' "$manifest" 2>/dev/null)
+            if $matched; then id="$pid"; break; fi
+        done < <(find "$providers_dir" -mindepth 2 -maxdepth 2 -name manifest.json 2>/dev/null)
+    fi
+    [ -z "$id" ] && return 1
+
+    local mdir="$providers_dir/$id"
+    manifest="$mdir/manifest.json"
+    [ -f "$manifest" ] || return 1
+    local fetch ttl
+    fetch=$(jq -r '.fetch // "fetch.sh"' "$manifest" 2>/dev/null)
+    ttl=$(jq -r '.cacheTtl // 120' "$manifest" 2>/dev/null)
+    [ -n "$ttl" ] && [ "$ttl" -gt 0 ] 2>/dev/null || ttl=120
+    [ -f "$mdir/$fetch" ] || return 1
+
+    # Provider output cache — shared across panes, throttled to the plugin TTL
+    local pcache="/tmp/claude/statusline-provider-${id}-${claude_config_dir_hash}.json"
+    local pdata="" pneed=true pm pn
+    if [ -f "$pcache" ] && [ -s "$pcache" ]; then
+        pm=$(stat -c %Y "$pcache" 2>/dev/null || stat -f %m "$pcache" 2>/dev/null)
+        pn=$(date +%s)
+        [ $(( pn - pm )) -lt "$ttl" ] && pneed=false
+        pdata=$(cat "$pcache" 2>/dev/null)
+    fi
+    if $pneed; then
+        touch "$pcache"
+        local fresh
+        fresh=$(STATUSLINE_PROVIDER_DIR="$mdir" \
+                STATUSLINE_PROVIDER_CONFIG="$mdir/config.json" \
+                STATUSLINE_PROVIDER_BASE="$provider_base" \
+                run_with_timeout 12 bash "$mdir/$fetch" <<< "$input" 2>/dev/null)
+        if [ -n "$fresh" ] && echo "$fresh" | jq -e . >/dev/null 2>&1; then
+            pdata="$fresh"
+            echo "$fresh" > "$pcache"
+        fi
+        [ -f "$pcache" ] && [ ! -s "$pcache" ] && rm -f "$pcache"
+    fi
+
+    [ -z "$pdata" ] && return 1
+    local perr
+    perr=$(echo "$pdata" | jq -r '.error // empty' 2>/dev/null)
+    if [ -n "$perr" ]; then
+        out+="${dim}${perr}${reset}"
+        return 0
+    fi
+    local n i lbl used lim unit upos dec
+    n=$(echo "$pdata" | jq '.segments | length' 2>/dev/null)
+    [ -n "$n" ] && [ "$n" -gt 0 ] 2>/dev/null || return 1
+    for ((i=0; i<n; i++)); do
+        lbl=$(echo "$pdata" | jq -r ".segments[$i].label // \"\"")
+        used=$(echo "$pdata" | jq -r ".segments[$i].used // 0")
+        lim=$(echo "$pdata" | jq -r ".segments[$i].limit // empty")
+        unit=$(echo "$pdata" | jq -r ".segments[$i].unit // \"\"")
+        upos=$(echo "$pdata" | jq -r ".segments[$i].unitPos // \"prefix\"")
+        dec=$(echo "$pdata" | jq -r ".segments[$i].decimals // 0")
+        [ "$i" -gt 0 ] && out+="$sep"
+        out+=$(render_segment "$lbl" "$used" "$lim" "$unit" "$upos" "$dec")
+    done
+    return 0
+}
+
 # Line 2 starts on a new line
 out+="\n"
 
-if $effective_builtin; then
+line2_filled=false
+if $third_party; then
+    # ---- Third-party provider: no official 5h/7d; try a provider plugin ----
+    render_third_party_usage && line2_filled=true
+elif $effective_builtin; then
     # ---- Use rate_limits data provided directly by Claude Code in JSON input ----
     if [ -n "$builtin_five_hour_pct" ]; then
         five_hour_pct=$(printf "%.0f" "$builtin_five_hour_pct")
@@ -456,6 +596,7 @@ if $effective_builtin; then
     printf '{"five_hour":{"utilization":%s,"resets_at":%s},"seven_day":{"utilization":%s,"resets_at":%s}}' \
         "${builtin_five_hour_pct:-0}" "$_fh_reset_json" \
         "${builtin_seven_day_pct:-0}" "$_sd_reset_json" > "$cache_file" 2>/dev/null
+    line2_filled=true
 elif [ -n "$usage_data" ] && echo "$usage_data" | jq -e '.five_hour' >/dev/null 2>&1; then
     # ---- Fall back: API-fetched usage data ----
     five_hour_pct=$(echo "$usage_data" | jq -r '.five_hour.utilization // 0' | awk '{printf "%.0f", $1}')
@@ -475,9 +616,11 @@ elif [ -n "$usage_data" ] && echo "$usage_data" | jq -e '.five_hour' >/dev/null 
     seven_day_bar=$(make_bar "$seven_day_pct" 10)
     out+="${sep}${white}7d${reset} ${seven_day_bar} ${seven_day_color}${seven_day_pct}%${reset}"
     [ -n "$seven_day_cd" ] && out+=" ${dim}↻${seven_day_cd}${reset}"
+    line2_filled=true
 else
     out+="${white}5h${reset} ${dim}-${reset}"
     out+="${sep}${white}7d${reset} ${dim}-${reset}"
+    line2_filled=true
 fi
 
 # ===== Today's totals (cost & tokens) — aggregated from local transcripts =====
@@ -549,7 +692,8 @@ fi
 
 daily_cost_fmt=$(format_cost "$daily_cost")
 daily_tokens_fmt=$(format_tokens "$daily_tokens")
-out+="${sep}${dim}今日${reset} ${green}\$${daily_cost_fmt}${reset} ${dim}/${reset} ${orange}${daily_tokens_fmt}${reset} ${dim}词元${reset}"
+$line2_filled && out+="$sep"
+out+="${dim}今日${reset} ${green}\$${daily_cost_fmt}${reset} ${dim}/${reset} ${orange}${daily_tokens_fmt}${reset} ${dim}词元${reset}"
 
 # ===== Update check against this fork's releases (cached, 24h TTL) =====
 # Checks Tght1211/claude-statusline, not upstream daniel3303 — acting on the

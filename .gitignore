@@ -1,0 +1,5 @@
+# Provider plugin credentials — never commit these
+providers/*/config.json
+
+# Exported provider bundles
+*.statusline-provider.tgz

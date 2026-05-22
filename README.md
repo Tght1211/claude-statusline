@@ -29,10 +29,38 @@ curl -fsSL https://raw.githubusercontent.com/Tght1211/claude-statusline/main/ins
 1. 把 `statusline.sh` 放到 `~/.claude/statusline/`
 2. 用 `jq` 更新 `~/.claude/settings.json` 的 `statusLine` 字段（保留你的其他配置）
 
+## 第三方 Anthropic 供应商
+
+把 Claude Code 接到第三方供应商（设置了 `ANTHROPIC_BASE_URL`）时，官方的 5h / 7d
+用量接口不再适用。此时 statusline 会**自动隐藏 5h / 7d**，第一行和「今日 $ / 词元」
+照常保留：
+
+```
+Opus 4.7 1M | 0/1m (0%) | 本次 $0.00 | 用时 0s
+次数 ░░░░░░░░░░ 2% 89/4000 | 额度 ░░░░░░░░░░ 3% ¥45.03/¥1200 | 今日 $53.62 / 21.4m 词元
+```
+
+第二行的供应商用量来自**可插拔的 provider 插件**。仓库内置了阿里 IdeaLab「MO计划」
+的参考实现（`providers/idealab-mo/`）。接入其它供应商：自己写一个插件本地导入即可，
+开发规范见 [`PROVIDERS.md`](./PROVIDERS.md)，也可让 Claude Code 用 `statusline-provider`
+skill 帮你脚手架。
+
+管理插件：
+
+```bash
+statusline-provider list                       # 列出已安装插件
+statusline-provider test <id>                  # 试跑并校验某插件
+statusline-provider export <id> [--with-secrets]  # 导出分享
+statusline-provider import <bundle.tgz>        # 导入同事的插件
+```
+
+启用 MO计划：复制 `~/.claude/statusline/providers/idealab-mo/config.example.json`
+为 `config.json`，把浏览器对 `idealab.alibaba-inc.com` 的 Cookie 整段粘进去即可。
+
 ## 依赖
 
 - `bash`、`jq`、`curl`（macOS 上 `curl` 自带，`jq` 用 `brew install jq` 安装）
-- Claude Code 已登录（5h / 7d 数据由 Claude Code 注入到 statusline，仅 Pro/Max 订阅可见）
+- Claude Code 已登录（官方 5h / 7d 数据由 Claude Code 注入到 statusline，仅 Pro/Max 订阅可见）
 
 ## 显示内容来源
 
@@ -40,7 +68,8 @@ curl -fsSL https://raw.githubusercontent.com/Tght1211/claude-statusline/main/ins
 | --- | --- |
 | 模型 / 上下文 | Claude Code 注入的 status JSON (`model.display_name`, `context_window`) |
 | 会话 $ / 时长 | `cost.total_cost_usd`, `cost.total_duration_ms` |
-| 5h / 7d 用量 | `rate_limits.five_hour`, `rate_limits.seven_day`（首次 API 请求后才会出现） |
+| 5h / 7d 用量 | `rate_limits.five_hour`, `rate_limits.seven_day`（首次 API 请求后才会出现；第三方供应商下隐藏） |
+| 第三方供应商用量 | provider 插件 `~/.claude/statusline/providers/<id>/fetch.sh` 的输出，按 `cacheTtl` 缓存 |
 | 今日 $ / tokens | 聚合 `~/.claude/projects/*/*.jsonl` 中今日 assistant 消息，按模型分别套用 Opus / Sonnet / Haiku 单价计算，缓存 60 秒 |
 
 ## 手动安装

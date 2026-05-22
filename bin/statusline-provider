@@ -1,0 +1,158 @@
+#!/bin/bash
+# statusline-provider — manage claude-statusline third-party provider plugins.
+#
+#   statusline-provider list
+#   statusline-provider test   <id>
+#   statusline-provider export <id> [out.tgz] [--with-secrets]
+#   statusline-provider import <bundle.tgz>
+#   statusline-provider remove <id>
+#
+# Plugins live in $CLAUDE_CONFIG_DIR/.claude/statusline/providers/<id>/.
+set -euo pipefail
+
+claude_config_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+providers_dir="$claude_config_dir/statusline/providers"
+
+command -v jq  >/dev/null 2>&1 || { echo "Error: jq not found." >&2; exit 1; }
+command -v tar >/dev/null 2>&1 || { echo "Error: tar not found." >&2; exit 1; }
+
+# macOS has no `timeout`; fall back to gtimeout or no timeout.
+sl_timeout=""
+if command -v timeout >/dev/null 2>&1; then sl_timeout="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then sl_timeout="gtimeout"
+fi
+run_with_timeout() {
+    local secs="$1"; shift
+    if [ -n "$sl_timeout" ]; then "$sl_timeout" "$secs" "$@"; else "$@"; fi
+}
+
+usage() {
+    sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
+    exit "${1:-0}"
+}
+
+# Validate a provider directory: must hold a manifest.json with a matching id.
+validate_provider() {
+    local pdir="$1" expect_id="${2:-}"
+    [ -f "$pdir/manifest.json" ] || { echo "  ✗ 缺少 manifest.json" >&2; return 1; }
+    local id fetch
+    id=$(jq -r '.id // empty' "$pdir/manifest.json" 2>/dev/null) || true
+    [ -n "$id" ] || { echo "  ✗ manifest.json 缺少 id" >&2; return 1; }
+    if [ -n "$expect_id" ] && [ "$id" != "$expect_id" ]; then
+        echo "  ✗ manifest id ($id) 与目录名 ($expect_id) 不一致" >&2; return 1
+    fi
+    fetch=$(jq -r '.fetch // "fetch.sh"' "$pdir/manifest.json" 2>/dev/null)
+    [ -f "$pdir/$fetch" ] || { echo "  ✗ 缺少 fetch 脚本 $fetch" >&2; return 1; }
+    jq -e '.match | type == "array"' "$pdir/manifest.json" >/dev/null 2>&1 \
+        || { echo "  ✗ manifest.json 的 match 必须是数组" >&2; return 1; }
+    return 0
+}
+
+cmd_list() {
+    [ -d "$providers_dir" ] || { echo "(尚未安装任何 provider 插件)"; return; }
+    local found=0
+    while IFS= read -r m; do
+        found=1
+        local id name ver match secret
+        id=$(jq -r '.id // "?"' "$m")
+        name=$(jq -r '.name // .id' "$m")
+        ver=$(jq -r '.version // "-"' "$m")
+        match=$(jq -r '[.match[]?] | join(", ")' "$m")
+        secret="无 config"
+        [ -f "$(dirname "$m")/config.json" ] && secret="已配置"
+        printf '  %-14s %s  v%s  [%s]  (%s)\n' "$id" "$name" "$ver" "$match" "$secret"
+    done < <(find "$providers_dir" -mindepth 2 -maxdepth 2 -name manifest.json 2>/dev/null | sort)
+    if [ "$found" -eq 0 ]; then echo "(尚未安装任何 provider 插件)"; fi
+}
+
+cmd_test() {
+    local id="${1:-}"
+    [ -n "$id" ] || { echo "用法: statusline-provider test <id>" >&2; exit 1; }
+    local pdir="$providers_dir/$id"
+    validate_provider "$pdir" "$id" || exit 1
+    local fetch
+    fetch=$(jq -r '.fetch // "fetch.sh"' "$pdir/manifest.json")
+    echo "运行 $id/$fetch ..." >&2
+    local out
+    out=$(STATUSLINE_PROVIDER_DIR="$pdir" \
+          STATUSLINE_PROVIDER_CONFIG="$pdir/config.json" \
+          STATUSLINE_PROVIDER_BASE="${ANTHROPIC_BASE_URL:-}" \
+          run_with_timeout 15 bash "$pdir/$fetch" <<< '{}' 2>/dev/null) || true
+    if [ -z "$out" ]; then
+        echo "✗ 插件没有任何输出" >&2; exit 1
+    fi
+    if ! echo "$out" | jq -e . >/dev/null 2>&1; then
+        echo "✗ 插件输出不是合法 JSON:" >&2; echo "$out" >&2; exit 1
+    fi
+    echo "$out" | jq .
+    if echo "$out" | jq -e '.error' >/dev/null 2>&1; then
+        echo "✗ 插件返回 error" >&2; exit 1
+    fi
+    echo "✓ 输出合法" >&2
+}
+
+cmd_export() {
+    local id="" out="" with_secrets=0
+    for a in "$@"; do
+        case "$a" in
+            --with-secrets) with_secrets=1 ;;
+            *) if [ -z "$id" ]; then id="$a"; elif [ -z "$out" ]; then out="$a"; fi ;;
+        esac
+    done
+    [ -n "$id" ] || { echo "用法: statusline-provider export <id> [out.tgz] [--with-secrets]" >&2; exit 1; }
+    local pdir="$providers_dir/$id"
+    validate_provider "$pdir" "$id" || exit 1
+    [ -n "$out" ] || out="./${id}.statusline-provider.tgz"
+    if [ "$with_secrets" -eq 0 ]; then
+        tar -C "$providers_dir" -czf "$out" --exclude="$id/config.json" "$id"
+    else
+        tar -C "$providers_dir" -czf "$out" "$id"
+    fi
+    echo "✓ 已导出: $out"
+    if [ "$with_secrets" -eq 0 ]; then
+        echo "  (未包含 config.json 凭据；如需一并导出请加 --with-secrets)"
+    fi
+}
+
+cmd_import() {
+    local file="${1:-}"
+    [ -n "$file" ] && [ -f "$file" ] || { echo "用法: statusline-provider import <bundle.tgz>" >&2; exit 1; }
+    local top
+    top=$(tar -tzf "$file" 2>/dev/null | head -1 | cut -d/ -f1)
+    [ -n "$top" ] || { echo "✗ 无法读取压缩包" >&2; exit 1; }
+    mkdir -p "$providers_dir"
+    local tmp
+    tmp=$(mktemp -d)
+    trap 'rm -rf "${tmp:-}" 2>/dev/null || true' EXIT
+    tar -C "$tmp" -xzf "$file"
+    validate_provider "$tmp/$top" "$top" || { echo "✗ 压缩包不是合法的 provider 插件" >&2; exit 1; }
+    if [ -d "$providers_dir/$top" ]; then
+        # Preserve an existing user config.json across re-import.
+        [ -f "$providers_dir/$top/config.json" ] && [ ! -f "$tmp/$top/config.json" ] \
+            && cp "$providers_dir/$top/config.json" "$tmp/$top/config.json"
+        rm -rf "$providers_dir/$top"
+    fi
+    cp -R "$tmp/$top" "$providers_dir/$top"
+    chmod +x "$providers_dir/$top/"*.sh 2>/dev/null || true
+    echo "✓ 已导入 provider: $top"
+    [ -f "$providers_dir/$top/config.json" ] || \
+        echo "  下一步: 复制 $providers_dir/$top/config.example.json 为 config.json 并填写凭据。"
+}
+
+cmd_remove() {
+    local id="${1:-}"
+    [ -n "$id" ] || { echo "用法: statusline-provider remove <id>" >&2; exit 1; }
+    [ -d "$providers_dir/$id" ] || { echo "✗ 未找到 provider: $id" >&2; exit 1; }
+    rm -rf "$providers_dir/$id"
+    echo "✓ 已删除 provider: $id"
+}
+
+case "${1:-}" in
+    list)         shift; cmd_list ;;
+    test)         shift; cmd_test "$@" ;;
+    export)       shift; cmd_export "$@" ;;
+    import)       shift; cmd_import "$@" ;;
+    remove|rm)    shift; cmd_remove "$@" ;;
+    -h|--help|help|"") usage 0 ;;
+    *) echo "未知命令: $1" >&2; usage 1 ;;
+esac
