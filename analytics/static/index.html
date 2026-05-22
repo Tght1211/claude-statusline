@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claude Analytics</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Claude Analytics</h1>
+            <div class="filters">
+                <input type="date" id="filter-from" />
+                <span>→</span>
+                <input type="date" id="filter-to" />
+                <button class="primary" id="btn-filter">筛选</button>
+                <button class="secondary" id="btn-reset">重置</button>
+            </div>
+        </header>
+
+        <nav class="tabs">
+            <button class="tab active" data-tab="overview">总览</button>
+            <button class="tab" data-tab="models">模型</button>
+            <button class="tab" data-tab="sessions">会话</button>
+            <button class="tab" data-tab="providers">供应商</button>
+        </nav>
+
+        <main>
+            <section id="tab-overview" class="tab-content active">
+                <div class="summary-cards">
+                    <div class="card">
+                        <span class="card-label">今日</span>
+                        <span class="card-value" id="cost-today">—</span>
+                    </div>
+                    <div class="card">
+                        <span class="card-label">本周</span>
+                        <span class="card-value" id="cost-week">—</span>
+                    </div>
+                    <div class="card">
+                        <span class="card-label">本月</span>
+                        <span class="card-value" id="cost-month">—</span>
+                    </div>
+                    <div class="card">
+                        <span class="card-label">累计</span>
+                        <span class="card-value" id="cost-total">—</span>
+                    </div>
+                </div>
+
+                <div class="overview-chart-section">
+                    <div class="chart-section-header">
+                        <h3>用量趋势</h3>
+                        <div class="view-toggle">
+                            <button class="toggle-btn active" data-view="year">年</button>
+                            <button class="toggle-btn" data-view="month">月</button>
+                        </div>
+                    </div>
+
+                    <div id="view-year" class="chart-view active">
+                        <div class="heatmap-months-row" id="heatmap-months"></div>
+                        <div class="heatmap-with-labels">
+                            <div class="heatmap-day-labels">
+                                <span>一</span><span>三</span><span>五</span><span>日</span>
+                            </div>
+                            <div id="heatmap-year" class="heatmap-grid"></div>
+                        </div>
+                        <div class="heatmap-footer">
+                            <div class="heatmap-legend">
+                                <span class="legend-label">少</span>
+                                <span class="legend-cell" data-level="0"></span>
+                                <span class="legend-cell" data-level="1"></span>
+                                <span class="legend-cell" data-level="2"></span>
+                                <span class="legend-cell" data-level="3"></span>
+                                <span class="legend-cell" data-level="4"></span>
+                                <span class="legend-label">多</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="view-month" class="chart-view">
+                        <div id="month-chart" class="line-chart-container"></div>
+                        <div class="chart-legend">
+                            <span class="chart-legend-item"><span class="chart-legend-dot" style="background:#2563eb"></span>花费 ($)</span>
+                            <span class="chart-legend-item"><span class="chart-legend-dot" style="background:#10b981"></span>Token</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="tab-models" class="tab-content">
+                <div id="models-content"></div>
+            </section>
+
+            <section id="tab-sessions" class="tab-content">
+                <div id="sessions-content"></div>
+            </section>
+
+            <section id="tab-providers" class="tab-content">
+                <div class="provider-actions">
+                    <button class="primary" id="btn-add-provider">+ 添加供应商</button>
+                </div>
+                <div id="providers-content"></div>
+                <div id="provider-modal" class="modal hidden">
+                    <div class="modal-content">
+                        <h3 id="modal-title">编辑配置</h3>
+                        <textarea id="modal-config" rows="12"></textarea>
+                        <div class="modal-actions">
+                            <button class="secondary" id="modal-cancel">取消</button>
+                            <button class="primary" id="modal-save">保存</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/js/app.js"></script>
+</body>
+</html>

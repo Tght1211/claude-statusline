@@ -165,6 +165,13 @@ version_gt() {
 model_name=$(echo "$input" | jq -r '.model.display_name // "Claude"')
 model_name=$(echo "$model_name" | sed 's/ *(\([0-9.]*[kKmM]*\) context)/ \1/')  # "(1M context)" → "1M"
 
+# Apply model name mapping from provider manifests (e.g. "custom-30f27891" → "Opus 4.7")
+_providers_dir="$claude_config_dir/statusline/providers"
+if [ -d "$_providers_dir" ]; then
+    _mapped=$(find -L "$_providers_dir" -maxdepth 2 -name manifest.json -exec jq -r --arg m "$model_name" '.modelMap[$m] // empty' {} \; 2>/dev/null | grep -m1 .)
+    [ -n "$_mapped" ] && model_name="$_mapped"
+fi
+
 # Context window
 size=$(echo "$input" | jq -r '.context_window.context_window_size // 200000')
 [ "$size" -eq 0 ] 2>/dev/null && size=200000
@@ -486,7 +493,7 @@ render_third_party_usage() {
                 esac
             done < <(jq -r '.match[]? // empty' "$manifest" 2>/dev/null)
             if $matched; then id="$pid"; break; fi
-        done < <(find "$providers_dir" -mindepth 2 -maxdepth 2 -name manifest.json 2>/dev/null)
+        done < <(find -L "$providers_dir" -mindepth 2 -maxdepth 2 -name manifest.json 2>/dev/null)
     fi
     [ -z "$id" ] && return 1
 
@@ -688,6 +695,13 @@ if $daily_needs_refresh && [ -d "$projects_dir" ]; then
     [ -z "$daily_cost" ] && daily_cost=0
     [ -z "$daily_tokens" ] && daily_tokens=0
     printf '{"date":"%s","cost":%s,"tokens":%s}' "$daily_today" "$daily_cost" "$daily_tokens" > "$daily_cache_file" 2>/dev/null
+
+    # Background analytics ingestion (non-blocking, best-effort)
+    _ingest="$claude_config_dir/statusline/analytics/ingest.sh"
+    if [ -f "$_ingest" ] && command -v sqlite3 >/dev/null 2>&1; then
+        bash "$_ingest" "$projects_dir" "$claude_config_dir/statusline/analytics.db" &>/dev/null &
+        disown 2>/dev/null
+    fi
 fi
 
 daily_cost_fmt=$(format_cost "$daily_cost")

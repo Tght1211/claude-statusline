@@ -1,0 +1,12 @@
+{
+  "id": "aone-cloud-cli",
+  "name": "Aone Cloud CLI",
+  "version": "1.0.0",
+  "description": "阿里 Aone Cloud CLI (ducky) Anthropic 代理，展示 Opus/Sonnet 每日与月度配额。",
+  "match": ["ducky.code.alibaba-inc.com", "ducky"],
+  "cacheTtl": 300,
+  "fetch": "fetch.sh",
+  "modelMap": {
+    "custom-30f27891": "Opus 4.7"
+  }
+}

@@ -3,3 +3,8 @@ providers/*/config.json
 
 # Exported provider bundles
 *.statusline-provider.tgz
+
+# Analytics
+analytics/.venv/
+analytics/analytics.db
+*.db

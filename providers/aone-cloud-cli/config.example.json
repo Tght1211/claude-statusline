@@ -1,0 +1,4 @@
+{
+  "_comment": "可选配置。不填则自动从 ~/.claude/settings.json 读取 ANTHROPIC_AUTH_TOKEN。",
+  "token": ""
+}
