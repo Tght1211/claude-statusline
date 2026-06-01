@@ -1,0 +1,9 @@
+{
+  "id": "idealab-mo-pro",
+  "name": "MO计划-高阶 (AI Studio)",
+  "version": "1.0.0",
+  "description": "阿里 AI Studio MO计划-高阶 第三方 Anthropic 供应商，展示团队 API 的每日调用次数与金额配额。",
+  "match": [],
+  "cacheTtl": 120,
+  "fetch": "fetch.sh"
+}

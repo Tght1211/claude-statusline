@@ -12,7 +12,7 @@ SETTINGS="$HOME/.claude/settings.json"
 SKILL_DIR="$HOME/.claude/skills/statusline-provider"
 
 # Reference provider plugins shipped with the installer.
-REFERENCE_PROVIDERS="idealab-mo"
+REFERENCE_PROVIDERS="idealab-mo idealab-mo-pro"
 
 command -v jq >/dev/null 2>&1 || { echo "Error: jq not found. Install with: brew install jq"; exit 1; }
 command -v curl >/dev/null 2>&1 || { echo "Error: curl not found."; exit 1; }

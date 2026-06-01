@@ -1,5 +1,5 @@
 #!/bin/bash
-# claude-statusline provider plugin: idealab-mo (阿里 AI Studio MO计划)
+# claude-statusline provider plugin: idealab-mo-pro (阿里 AI Studio MO计划-高阶)
 #
 # Contract (see PROVIDERS.md):
 #   - stdin            : the Claude Code status JSON
@@ -9,7 +9,7 @@
 #
 # config.json fields:
 #   cookie   (required) — browser Cookie header for aistudio.alibaba-inc.com
-#   teamCode (optional) — defaults to "API_TEAM_CODE_99"
+#   teamCode (optional) — defaults to "API_TEAM_CODE_107"
 set -f
 
 dir="${STATUSLINE_PROVIDER_DIR:-$(cd "$(dirname "$0")" 2>/dev/null && pwd)}"
@@ -19,16 +19,13 @@ err() { jq -cn --arg m "$1" '{error:$m}'; exit 0; }
 
 command -v jq   >/dev/null 2>&1 || err "缺少 jq"
 command -v curl >/dev/null 2>&1 || err "缺少 curl"
-[ -f "$config" ] || err "MO计划: 未配置 config.json — 运行 statusline-provider setup idealab-mo"
+[ -f "$config" ] || err "MO计划-高阶: 未配置 config.json — 运行 statusline-provider setup idealab-mo-pro"
 
 cookie=$(jq -r '.cookie // empty' "$config" 2>/dev/null)
-team=$(jq -r '.teamCode // "API_TEAM_CODE_99"' "$config" 2>/dev/null)
+team=$(jq -r '.teamCode // "API_TEAM_CODE_107"' "$config" 2>/dev/null)
 losvc_key=$(jq -r '.losvcKey // empty' "$config" 2>/dev/null)
-[ -n "$cookie" ] || err "MO计划: config.json 缺少 cookie"
+[ -n "$cookie" ] || err "MO计划-高阶: config.json 缺少 cookie"
 
-# Try refreshing security tokens via losvc (AliEntSaf local agent, port 64556).
-# These tokens (x_mini_wua, x_sign, x_umt) expire faster than SSO cookies;
-# refreshing them extends the overall cookie lifetime.
 refresh_security_tokens() {
     local key="$1" base_cookie="$2"
     [ -n "$key" ] || { echo "$base_cookie"; return; }
@@ -64,9 +61,9 @@ resp=$(curl -s --max-time 10 \
     -b "$cookie" \
     --data-raw "{\"teamCode\":\"$team\"}" 2>/dev/null)
 
-[ -n "$resp" ] || err "MO计划: 请求无响应"
+[ -n "$resp" ] || err "MO计划-高阶: 请求无响应"
 ok=$(echo "$resp" | jq -r '.success // false' 2>/dev/null)
-[ "$ok" = "true" ] || err "MO计划: 登录态失效，请更新 cookie"
+[ "$ok" = "true" ] || err "MO计划-高阶: 登录态失效，请更新 cookie"
 
 echo "$resp" | jq -c '.data | {
   segments: [

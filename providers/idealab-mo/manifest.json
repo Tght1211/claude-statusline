@@ -1,9 +1,9 @@
 {
   "id": "idealab-mo",
-  "name": "MO计划 (IdeaLab)",
+  "name": "MO计划 (AI Studio)",
   "version": "1.0.0",
   "description": "阿里 IdeaLab MO计划 第三方 Anthropic 供应商，展示团队 API 的每日调用次数与金额配额。",
-  "match": ["idealab.alibaba-inc.com", "idealab"],
+  "match": ["aistudio.alibaba-inc.com", "idealab.alibaba-inc.com", "aistudio", "idealab"],
   "cacheTtl": 120,
   "fetch": "fetch.sh"
 }

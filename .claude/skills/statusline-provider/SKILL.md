@@ -15,6 +15,7 @@ description: 为 claude-statusline 开发第三方 Anthropic 供应商插件（p
 - 「帮我接入 XXX 供应商的用量」「让 statusline 显示我在 XXX 的配额」
 - 用户给出某供应商的用量查询接口（curl / API 文档）
 - 提到 provider 插件、第三方供应商状态栏
+- **用户粘贴了 MO 计划的 curl 命令**（含 `aistudio.alibaba-inc.com/api/ailab/ak/teamapi`）→ 自动配置
 
 ## 一个插件 = 一个目录
 
@@ -92,9 +93,44 @@ statusline-provider export <id> x.tgz --with-secrets
 statusline-provider import x.statusline-provider.tgz
 ```
 
+## 快速配置（MO 计划）
+
+当用户粘贴了一段包含 `aistudio.alibaba-inc.com/api/ailab/ak/teamapi/getOrCreate` 的 curl 命令时，
+自动执行以下步骤（不需要用户手动操作）：
+
+1. **识别 provider**：从 `--data-raw` 的 `teamCode` 判断：
+   - `API_TEAM_CODE_99` → `idealab-mo`
+   - `API_TEAM_CODE_107` → `idealab-mo-pro`
+   - 其他 → 提示用户确认
+
+2. **提取凭据**：从 curl 的 `-b` 参数中提取完整 cookie 值。
+
+3. **写入配置**：将 cookie 和 teamCode 写入对应 provider 的 `config.json`：
+   ```bash
+   # 自动写入（或等价于）：
+   echo '{"cookie":"<提取的cookie>","teamCode":"<teamCode>"}' \
+     > ~/.claude/statusline/providers/<id>/config.json
+   ```
+
+4. **验证**：运行 `statusline-provider test <id>` 确认能拉取到用量数据。
+
+5. **告知用户**：需设 `STATUSLINE_PROVIDER=<id>` 或确认 `ANTHROPIC_BASE_URL` 能匹配。
+
+也可引导用户使用 CLI：
+
+```bash
+pbpaste | statusline-provider setup idealab-mo-pro
+```
+
+### losvc security token 增强（可选）
+
+如果用户提供了 losvc 的加密密钥（从浏览器请求 `losvc.alibaba-inc.com:64556/api/securitytoken`
+中的 `data` 字段），可将其加入 config.json 的 `losvcKey` 字段。fetch.sh 会在每次拉取用量时
+自动刷新 `x_mini_wua`/`x_sign`/`x_umt`，延长 cookie 有效期。
+
 ## 收尾
 
 写完后告诉用户：
 - 需把 `ANTHROPIC_BASE_URL` 设为能被 `match` 命中的地址（或设 `STATUSLINE_PROVIDER=<id>`）。
-- 复制 `config.example.json` 为 `config.json` 并填凭据。
+- 复制 `config.example.json` 为 `config.json` 并填凭据，或用 `statusline-provider setup <id>` 从 curl 自动配置。
 - 重启 Claude Code 查看效果。
