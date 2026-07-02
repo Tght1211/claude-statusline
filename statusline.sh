@@ -552,6 +552,50 @@ render_third_party_usage() {
     return 0
 }
 
+# ===== Claude Code Radar: highest-IQ model (cached, 30min TTL) =====
+# https://claudecoderadar.com publishes periodic IQ benchmark scores per model;
+# we surface whichever model currently scores highest.
+radar_cache_file="/tmp/claude/statusline-radar-cache.json"
+radar_cache_max_age=1800  # 30 minutes
+
+radar_needs_refresh=true
+radar_data=""
+
+if [ -f "$radar_cache_file" ] && [ -s "$radar_cache_file" ]; then
+    radar_mtime=$(stat -c %Y "$radar_cache_file" 2>/dev/null || stat -f %m "$radar_cache_file" 2>/dev/null)
+    radar_now=$(date +%s)
+    radar_age=$(( radar_now - radar_mtime ))
+    if [ "$radar_age" -lt "$radar_cache_max_age" ]; then
+        radar_needs_refresh=false
+    fi
+    radar_data=$(cat "$radar_cache_file" 2>/dev/null)
+fi
+
+if $radar_needs_refresh; then
+    touch "$radar_cache_file" 2>/dev/null
+    radar_response=$(curl -s --max-time 5 \
+        -H "Accept: application/json" \
+        -H "Referer: https://claudecoderadar.com/" \
+        "https://claudecoderadar.com/data/claude-code-radar.json" 2>/dev/null)
+    if [ -n "$radar_response" ] && echo "$radar_response" | jq -e '.iq.models' >/dev/null 2>&1; then
+        radar_data="$radar_response"
+        echo "$radar_response" > "$radar_cache_file"
+    elif [ ! -s "$radar_cache_file" ]; then
+        # Fetch failed and cache is empty — drop the stampede lock so the next
+        # render retries instead of waiting out the full TTL.
+        rm -f "$radar_cache_file" 2>/dev/null
+    fi
+fi
+
+if [ -n "$radar_data" ]; then
+    top_iq_name=$(echo "$radar_data" | jq -r '(.iq.models | max_by(.score) // {}) | .name // empty')
+    top_iq_score=$(echo "$radar_data" | jq -r '(.iq.models | max_by(.score) // {}) | .score // empty')
+    if [ -n "$top_iq_name" ] && [ -n "$top_iq_score" ]; then
+        top_iq_score=$(printf '%.0f' "$top_iq_score" 2>/dev/null)
+        out+=" ${dim}|${reset} ${dim}IQ${reset} ${purple}${top_iq_name} ${top_iq_score}${reset}"
+    fi
+fi
+
 # Line 2 starts on a new line
 out+="\n"
 

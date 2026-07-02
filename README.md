@@ -5,11 +5,11 @@
 ## 效果
 
 ```
-Opus 4.7 | 93k/1m (9%) | 本次 $3.34 | 用时 32m
+Opus 4.7 | 93k/1m (9%) | 本次 $3.34 | 用时 32m | IQ Sonnet 5 max 120
 5h ██░░░░░░░░ 22% ↻2h30m | 7d ░░░░░░░░░░ 1% ↻6d5h | 今日 $56.38 / 20.3m 词元
 ```
 
-- 第一行：**模型** | **上下文 used/total (pct%)** | **本次会话花费** | **本次会话用时**
+- 第一行：**模型** | **上下文 used/total (pct%)** | **本次会话花费** | **本次会话用时** | **IQ 最高分模型 + 分数**
 - 第二行：**5h 进度条 + 重置倒计时** | **7d 进度条 + 重置倒计时** | **今日总花费 / 今日总词元数**
 
 - `↻` 后面是配额重置剩余时间，格式 `45m` / `2h30m` / `6d5h`
@@ -68,6 +68,7 @@ statusline-provider import <bundle.tgz>        # 导入同事的插件
 | --- | --- |
 | 模型 / 上下文 | Claude Code 注入的 status JSON (`model.display_name`, `context_window`) |
 | 会话 $ / 时长 | `cost.total_cost_usd`, `cost.total_duration_ms` |
+| IQ 最高分模型 | [claudecoderadar.com](https://claudecoderadar.com) 的 `iq.models` 榜单，取 `score` 最高的一项，缓存 30 分钟 |
 | 5h / 7d 用量 | `rate_limits.five_hour`, `rate_limits.seven_day`（首次 API 请求后才会出现；第三方供应商下隐藏） |
 | 第三方供应商用量 | provider 插件 `~/.claude/statusline/providers/<id>/fetch.sh` 的输出，按 `cacheTtl` 缓存 |
 | 今日 $ / tokens | 聚合 `~/.claude/projects/*/*.jsonl` 中今日 assistant 消息，按模型分别套用 Opus / Sonnet / Haiku 单价计算，缓存 60 秒 |
